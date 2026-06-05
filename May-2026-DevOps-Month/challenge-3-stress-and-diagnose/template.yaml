@@ -1,0 +1,68 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Challenge 3 - Stress & Diagnose. Creates one small t3.micro EC2 instance with a
+  CPU alarm. You'll log in (one click in the console), max out the CPU, and ask
+  the DevOps Agent what's wrong. Upload this file in the CloudFormation console.
+
+Parameters:
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: Amazon Linux 2023 (filled in automatically — leave as is).
+
+Resources:
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        # Lets you connect with one click (Session Manager) — no SSH keys needed.
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref InstanceRole]
+
+  StressInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: !Ref LatestAmiId
+      IamInstanceProfile: !Ref InstanceProfile
+      Tags:
+        - Key: Name
+          Value: challenge3-stress
+      # No software to install — the stress command in the README uses the
+      # built-in `yes` tool, which exists on every Linux. SSM Agent is already
+      # preinstalled on Amazon Linux 2023, so Session Manager works out of the box.
+
+  CpuAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: challenge3-high-cpu
+      AlarmDescription: EC2 CPU is high (run the stress command to trigger this).
+      Namespace: AWS/EC2
+      MetricName: CPUUtilization
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref StressInstance
+      Statistic: Average
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 70
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+Outputs:
+  InstanceId:
+    Description: Connect to this instance, then run the stress command.
+    Value: !Ref StressInstance
+  AlarmName:
+    Description: Watch this alarm turn red after you stress the CPU.
+    Value: !Ref CpuAlarm

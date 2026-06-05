@@ -1,0 +1,81 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Challenge 4 - Bad Deploy Detective. Creates a tiny web app (a Lambda with a
+  public URL) that works fine at first. You'll "deploy a bad change" by editing
+  the code to break it, then let the DevOps Agent find what went wrong.
+  Upload this file in the CloudFormation console.
+
+Resources:
+  WebApp:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: challenge4-webapp
+      Runtime: python3.12
+      Handler: index.handler
+      Timeout: 10
+      Role: !GetAtt AppRole.Arn
+      Code:
+        ZipFile: |
+          import json
+
+          def handler(event, context):
+              # GOOD version: the app works and returns 200.
+              # In the challenge you'll edit this to "ship a bad deploy".
+              return {
+                  "statusCode": 200,
+                  "headers": {"Content-Type": "application/json"},
+                  "body": json.dumps({"status": "ok", "app": "bad-deploy-detective"}),
+              }
+
+  AppRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  # A public URL so you can open the app in a browser.
+  AppUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !Ref WebApp
+      AuthType: NONE
+
+  UrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref WebApp
+      Action: lambda:InvokeFunctionUrl
+      Principal: "*"
+      FunctionUrlAuthType: NONE
+
+  ErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: challenge4-webapp-errors
+      AlarmDescription: The web app started erroring (likely a bad deploy).
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref WebApp
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+Outputs:
+  AppUrl:
+    Description: Open this URL in your browser. Should say "ok" before the bad deploy.
+    Value: !GetAtt AppUrl.FunctionUrl
+  FunctionName:
+    Value: !Ref WebApp
+  AlarmName:
+    Value: !Ref ErrorAlarm
